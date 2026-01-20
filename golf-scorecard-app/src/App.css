@@ -1,0 +1,53 @@
+/* General body styling */
+body {
+    margin: 0;
+    font-family: 'Roboto', Arial, sans-serif;
+    background-color: #f4f4f9;
+    color: #333;
+}
+
+/* Center content */
+.App {
+    text-align: center;
+    padding: 20px;
+}
+
+/* Ensure the table container is scrollable */
+.table-container {
+    overflow-x: auto; /* Enable horizontal scrolling */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling for mobile */
+    margin-bottom: 20px;
+}
+
+/* Default table styling */
+table {
+    min-width: 600px; /* Ensure the table has a minimum width */
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+th, td {
+    padding: 10px;
+    border: 1px solid #ccc;
+    text-align: left;
+    white-space: nowrap; /* Prevent text wrapping */
+}
+
+th {
+    background-color: #388e3c;
+    color: white;
+}
+
+/* Adjust table for mobile devices */
+@media (max-width: 768px) {
+    table {
+        min-width: 300px; /* Ensure at least 3 columns are visible */
+    }
+
+    th, td {
+        padding: 8px;
+        font-size: 0.9rem; /* Adjust font size for smaller screens */
+    }
+}

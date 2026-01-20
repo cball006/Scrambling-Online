@@ -1,0 +1,67 @@
+.home-container {
+    align-items: center; /* optional, keep if you want horizontal centering */
+    padding: 40px 0;
+    background: #f7f7fb;
+    box-sizing: border-box;
+}
+
+h1 {
+    margin-bottom: 20px;
+    font-size: 2rem;
+    color: #1976d2;
+}
+
+.player-inputs {
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;      /* Center horizontally */
+    display: block;      /* Ensure block context */
+}
+
+.player-input {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.player-input input {
+    flex: 1;
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-right: 10px;
+}
+
+.add-player-button {
+    padding: 10px 15px;
+    background-color: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.add-player-button:hover {
+    background-color: #1565c0;
+}
+
+.start-game-button {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 15px 30px;
+    background-color: #1565c0;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.start-game-button:hover {
+    background-color: #31c015;
+}
