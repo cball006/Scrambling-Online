@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "types": ["react", "react-dom", "node"],
     "target": "es6",
     "module": "commonjs",
     "jsx": "react",
