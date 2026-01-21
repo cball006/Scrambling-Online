@@ -1,19 +1,12 @@
-# server/app/main.py
-
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, HTTPException, status, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import List, Dict, Optional
+import secrets
 
-from .database import engine, get_db
-from . import models
-
-# ---------------- Create DB Tables ----------------
-models.Base.metadata.create_all(bind=engine)
-
-# ---------------- FastAPI Setup ----------------
 app = FastAPI(title="Scramble Game Backend")
 
+# CORS for React dev server
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -22,71 +15,76 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- Request Models ----------------
+# --- In-memory storage ---
+sessions: Dict[str, Dict] = {}  # key=session name, value=dict with id, password
+next_session_id = 1
+active_tokens: Dict[str, str] = {}  # token -> session name
+
+# --- Pydantic models ---
 class SessionCreate(BaseModel):
     name: str
     password: str
 
-# ---------------- Health Check ----------------
+class SessionOut(BaseModel):
+    id: int
+    name: str
+
+class SessionAuthOut(SessionOut):
+    token: str
+
+# --- Health check ---
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# ---------------- Session Endpoints ----------------
-@app.post("/sessions")
-def create_session(
-    session: SessionCreate,
-    db: Session = Depends(get_db)
-):
-    existing = db.query(models.Session).filter(
-        models.Session.name == session.name
-    ).first()
+# --- List active sessions ---
+@app.get("/sessions", response_model=List[SessionOut])
+def list_sessions():
+    return [{"id": s["id"], "name": name} for name, s in sessions.items()]
 
-    if existing:
-        raise HTTPException(status_code=400, detail="Session already exists")
-
-    new_session = models.Session(name=session.name)
-    db.add(new_session)
-    db.commit()
-    db.refresh(new_session)
-
-    return {
-        "status": "created",
-        "session": new_session.name,
-        "id": new_session.id
-    }
-
-@app.get("/sessions")
-def list_sessions(db: Session = Depends(get_db)):
-    sessions = db.query(models.Session).all()
-    return {
-        "sessions": [s.name for s in sessions]
-    }
-
-@app.post("/sessions/join")
-def join_session(
-    session: SessionCreate,
-    db: Session = Depends(get_db)
-):
-    db_session = db.query(models.Session).filter(
-        models.Session.name == session.name
-    ).first()
-
-    if not db_session:
+# --- Create a new session ---
+@app.post("/sessions", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
+def create_session(session: SessionCreate):
+    global next_session_id
+    if session.name in sessions:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Session already exists"
+        )
+    sessions[session.name] = {
+        "id": next_session_id,
+        "password": session.password
+    }
+    next_session_id += 1
+    return {"id": sessions[session.name]["id"], "name": session.name}
+
+# --- Join session ---
+@app.post("/sessions/join", response_model=SessionAuthOut)
+def join_session(session: SessionCreate):
+    if session.name not in sessions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
-
-    if db_session.password != session.password:
+    if sessions[session.name]["password"] != session.password:
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password"
         )
 
+    # generate token for this user
+    token = secrets.token_urlsafe(32)
+    active_tokens[token] = session.name
+
     return {
-        "status": "joined",
-        "session": db_session.name,
-        "session_id": db_session.id
+        "id": sessions[session.name]["id"],
+        "name": session.name,
+        "token": token
     }
 
+# --- Optional helper for validating token ---
+def get_session_from_token(token: Optional[str] = Header(None)):
+    if not token or token not in active_tokens:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing token")
+    session_name = active_tokens[token]
+    return sessions[session_name]

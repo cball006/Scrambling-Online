@@ -1,12 +1,15 @@
-import React, { useState } from "react";
-import Hole from "./Hole";
+// File: src/components/Game.tsx
+
+import React, { useState, useEffect } from "react";
 import html2canvas from "html2canvas";
+
+const discordWebhookUrl = process.env.REACT_APP_DISCORD_WEBHOOK_URL as string;
 
 interface GameProps {
   players: string[];
-  strokes: string[][][]; // Tracks selected players for each stroke
+  strokes: string[][][];
   setStrokes: React.Dispatch<React.SetStateAction<string[][][]>>;
-  shotTypes: string[][][]; // Tracks shot types for each stroke
+  shotTypes: string[][][];
   setShotTypes: React.Dispatch<React.SetStateAction<string[][][]>>;
   currentHole: number;
   setCurrentHole: React.Dispatch<React.SetStateAction<number>>;
@@ -16,6 +19,8 @@ interface GameProps {
     par: number[];
     yardage: number[];
   };
+  sessionName: string;
+  sessionToken: string;
 }
 
 const Game: React.FC<GameProps> = ({
@@ -28,6 +33,8 @@ const Game: React.FC<GameProps> = ({
   setCurrentHole,
   goToLeaderboard,
   courseInfo,
+  sessionName,
+  sessionToken,
 }) => {
   const shotTypeOptions = [
     "Drive",
@@ -41,119 +48,97 @@ const Game: React.FC<GameProps> = ({
     "Water Hazard",
   ];
 
-  // Calculate the cumulative strokes across all holes
-  const totalStrokes = shotTypes.reduce((total, hole) => {
-    return (
-      total +
-      hole.reduce((holeTotal, stroke) => {
-        return holeTotal + (stroke[0] ? 1 : 0);
-      }, 0)
-    );
-  }, 0);
+  // Backend sync
+  const syncHoleToBackend = async () => {
+    const holeData = {
+      hole: currentHole,
+      strokes: strokes[currentHole - 1] || [],
+      shotTypes: shotTypes[currentHole - 1] || [],
+    };
+    try {
+      await fetch(`http://127.0.0.1:8080/sessions/${sessionName}/hole`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": sessionToken,
+        },
+        body: JSON.stringify(holeData),
+      });
+    } catch (err) {
+      console.error("Failed to sync hole data:", err);
+    }
+  };
 
   const addStroke = () => {
     const updatedStrokes = [...strokes];
     const updatedShotTypes = [...shotTypes];
-
-    if (!updatedStrokes[currentHole - 1]) {
-      updatedStrokes[currentHole - 1] = [];
-    }
-    if (!updatedShotTypes[currentHole - 1]) {
-      updatedShotTypes[currentHole - 1] = [];
-    }
-
+    if (!updatedStrokes[currentHole - 1]) updatedStrokes[currentHole - 1] = [];
+    if (!updatedShotTypes[currentHole - 1]) updatedShotTypes[currentHole - 1] = [];
     updatedStrokes[currentHole - 1].push([]);
     updatedShotTypes[currentHole - 1].push([]);
-
     setStrokes(updatedStrokes);
     setShotTypes(updatedShotTypes);
+    syncHoleToBackend();
   };
 
-  const removeStroke = (strokeIndex: number) => {
+  const removeStroke = (idx: number) => {
     const updatedStrokes = [...strokes];
     const updatedShotTypes = [...shotTypes];
-
-    if (updatedStrokes[currentHole - 1]) {
-      updatedStrokes[currentHole - 1].splice(strokeIndex, 1);
-    }
-    if (updatedShotTypes[currentHole - 1]) {
-      updatedShotTypes[currentHole - 1].splice(strokeIndex, 1);
-    }
-
+    updatedStrokes[currentHole - 1]?.splice(idx, 1);
+    updatedShotTypes[currentHole - 1]?.splice(idx, 1);
     setStrokes(updatedStrokes);
     setShotTypes(updatedShotTypes);
+    syncHoleToBackend();
   };
 
-  const togglePlayerForStroke = (strokeIndex: number, playerName: string) => {
+  const togglePlayerForStroke = (strokeIdx: number, playerName: string) => {
     const updatedStrokes = [...strokes];
-    const currentStrokePlayers =
-      updatedStrokes[currentHole - 1][strokeIndex] || [];
-
-    if (currentStrokePlayers.includes(playerName)) {
-      updatedStrokes[currentHole - 1][strokeIndex] =
-        currentStrokePlayers.filter((name) => name !== playerName);
+    const currentPlayers = updatedStrokes[currentHole - 1][strokeIdx] || [];
+    if (currentPlayers.includes(playerName)) {
+      updatedStrokes[currentHole - 1][strokeIdx] = currentPlayers.filter((p) => p !== playerName);
     } else {
-      updatedStrokes[currentHole - 1][strokeIndex] = [
-        ...currentStrokePlayers,
-        playerName,
-      ];
+      updatedStrokes[currentHole - 1][strokeIdx] = [...currentPlayers, playerName];
     }
-
     setStrokes(updatedStrokes);
+    syncHoleToBackend();
   };
 
-  const selectShotType = (strokeIndex: number, shotType: string) => {
+  const selectShotType = (strokeIdx: number, shotType: string) => {
     const updatedShotTypes = [...shotTypes];
-    const currentPlayers = strokes[currentHole - 1][strokeIndex] || [];
-
+    const currentPlayers = strokes[currentHole - 1][strokeIdx] || [];
     if (shotType === "Gimme" || shotType === "Water Hazard") {
-      updatedShotTypes[currentHole - 1][strokeIndex] = [shotType];
+      updatedShotTypes[currentHole - 1][strokeIdx] = [shotType];
     } else {
-      updatedShotTypes[currentHole - 1][strokeIndex] = currentPlayers.map(
-        () => shotType
-      );
+      updatedShotTypes[currentHole - 1][strokeIdx] = currentPlayers.map(() => shotType);
     }
-
     setShotTypes(updatedShotTypes);
+    syncHoleToBackend();
   };
 
   const nextHole = () => {
     if (currentHole < 18) {
       setCurrentHole(currentHole + 1);
-
-      if (!strokes[currentHole]) {
-        setStrokes([...strokes, []]);
-      }
-      if (!shotTypes[currentHole]) {
-        setShotTypes([...shotTypes, []]);
-      }
+      if (!strokes[currentHole]) setStrokes([...strokes, []]);
+      if (!shotTypes[currentHole]) setShotTypes([...shotTypes, []]);
     } else {
       alert("Game Over!");
     }
   };
 
   const previousHole = () => {
-    if (currentHole > 1) {
-      setCurrentHole(currentHole - 1);
-    }
+    if (currentHole > 1) setCurrentHole(currentHole - 1);
   };
 
-  // Editable par state and edit mode
-  const [editablePar, setEditablePar] = useState<number>(
-    courseInfo.par[currentHole - 1]
-  );
+  const [editablePar, setEditablePar] = useState<number>(courseInfo.par[currentHole - 1]);
   const [editingPar, setEditingPar] = useState<boolean>(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setEditablePar(courseInfo.par[currentHole - 1]);
     setEditingPar(false);
   }, [currentHole, courseInfo.par]);
 
-  const handleParChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newPar = Number(e.target.value);
-    setEditablePar(newPar);
-  };
-
+  const handleParChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setEditablePar(Number(e.target.value));
   const savePar = () => {
     const updatedPar = [...courseInfo.par];
     updatedPar[currentHole - 1] = editablePar;
@@ -163,314 +148,121 @@ const Game: React.FC<GameProps> = ({
 
   const exportLeaderboardToDiscord = async () => {
     const leaderboardElement = document.querySelector(".leaderboard-container");
-    if (!leaderboardElement) {
-      alert("Leaderboard not found!");
-      return;
-    }
+    if (!leaderboardElement) return alert("Leaderboard not found!");
     const canvas = await html2canvas(leaderboardElement as HTMLElement);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/png")
-    );
-    if (!blob) {
-      alert("Failed to generate image.");
-      return;
-    }
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) return alert("Failed to generate image.");
     const formData = new FormData();
     formData.append("file", blob, "leaderboard.png");
-    formData.append(
-      "payload_json",
-      JSON.stringify({ content: "Leaderboard export" })
-    );
-
-    await fetch(process.env.REACT_APP_DISCORD_WEBHOOK_URL || "", {
-      method: "POST",
-      body: formData,
-    });
+    formData.append("payload_json", JSON.stringify({ content: "Leaderboard export" }));
+    await fetch(discordWebhookUrl || "", { method: "POST", body: formData });
     alert("Leaderboard exported to Discord!");
   };
 
   return (
-    <div style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto" }}>
-      <h1 style={{ textAlign: "center", color: "#2380d7", marginBottom: 0 }}>
-        {courseInfo.name}
-      </h1>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          marginTop: 32,
-          marginBottom: 24,
-        }}
+    <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto", fontFamily: "sans-serif" }}>
+      <h2 style={{ textAlign: "center" }}>Hole {currentHole}</h2>
+
+      <div style={{ marginBottom: "16px", textAlign: "center" }}>
+        {editingPar ? (
+          <>
+            <input type="number" value={editablePar} onChange={handleParChange} style={{ width: "60px" }} />
+            <button onClick={savePar} style={{ marginLeft: 8 }}>Save Par</button>
+          </>
+        ) : (
+          <>
+            <span style={{ fontWeight: "bold", fontSize: "18px" }}>Par: {courseInfo.par[currentHole - 1]}</span>
+            <button onClick={() => setEditingPar(true)} style={{ marginLeft: 8 }}>Edit</button>
+          </>
+        )}
+      </div>
+
+      <button
+        onClick={addStroke}
+        style={{ display: "block", margin: "0 auto 16px", padding: "8px 16px", fontSize: "16px" }}
       >
-        <div
-          style={{
-            padding: "18px 5vw",
-            background: "#e3f2fd",
-            borderRadius: "12px",
-            fontSize: "clamp(1.2rem, 6vw, 2rem)",
-            color: "#1976d2",
-            fontWeight: "bold",
-            boxShadow: "0 2px 8px rgba(25, 118, 210, 0.08)",
-            textAlign: "center",
-            minWidth: 120,
-            marginBottom: 16,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "1vw",
-            maxWidth: "95vw",
-          }}
-        >
-          Hole {currentHole} &nbsp;|&nbsp; Par{" "}
-          {editingPar ? (
-            <input
-              type="number"
-              value={editablePar}
-              min={1}
-              max={10}
-              autoFocus
-              onChange={handleParChange}
-              onBlur={savePar}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") savePar();
-              }}
+        Add Stroke
+      </button>
+
+      {/* Modern Stroke List */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        {(strokes[currentHole - 1] || []).map((strokePlayers, idx) => (
+          <div
+            key={idx}
+            style={{
+              padding: "12px",
+              borderRadius: "8px",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div>
+              <strong>Stroke {idx + 1}</strong>
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {players.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => togglePlayerForStroke(idx, p)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #ccc",
+                    backgroundColor: strokePlayers.includes(p) ? "#4caf50" : "#f0f0f0",
+                    color: strokePlayers.includes(p) ? "#fff" : "#000",
+                    cursor: "pointer",
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <select
+                value={(shotTypes[currentHole - 1][idx] || [""])[0]}
+                onChange={(e) => selectShotType(idx, e.target.value)}
+                style={{ padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
+              >
+                <option value="">-- Shot Type --</option>
+                {shotTypeOptions.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={() => removeStroke(idx)}
               style={{
-                width: "3em",
-                fontSize: "clamp(1rem, 5vw, 1.5rem)",
-                textAlign: "center",
-                border: "1px solid #1976d2",
+                padding: "6px 12px",
                 borderRadius: "6px",
-                marginLeft: 8,
-                background: "#e3f2fd",
-                color: "#1976d2",
-                fontWeight: "bold",
-              }}
-            />
-          ) : (
-            <span
-              style={{
-                marginLeft: 8,
+                backgroundColor: "#e53935",
+                color: "#fff",
+                border: "none",
                 cursor: "pointer",
-                color: "#1976d2",
-                textDecoration: "underline",
-                fontWeight: "bold",
               }}
-              title="Click to edit par"
-              onClick={() => setEditingPar(true)}
             >
-              {editablePar}
-            </span>
-          )}
-        </div>
-        <div
-          style={{
-            background: "#fffde7",
-            borderRadius: "12px",
-            padding: "10px 24px",
-            color: "#f9a825",
-            fontWeight: "bold",
-            fontSize: "1rem",
-            boxShadow: "0 2px 8px rgba(249, 168, 37, 0.08)",
-            minWidth: 120,
-            textAlign: "center",
-          }}
-        >
-          Total Strokes: {totalStrokes}
-        </div>
+              Remove
+            </button>
+          </div>
+        ))}
       </div>
-      <div style={{ overflowX: "auto", marginBottom: "20px" }}>
-        <table
-          style={{
-            margin: "0 auto",
-            borderCollapse: "collapse",
-            width: "100%",
-            maxWidth: "100%",
-            backgroundColor: "#ffffff",
-            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
-          }}
-        >
-          <thead>
-            <tr style={{ backgroundColor: "#1976d2", color: "white" }}>
-              <th
-                style={{
-                  padding: "10px",
-                  textAlign: "left",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Stroke
-              </th>
-              <th
-                style={{
-                  padding: "10px",
-                  textAlign: "left",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Player
-              </th>
-              <th
-                style={{
-                  padding: "10px",
-                  textAlign: "left",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Shot Type
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {strokes[currentHole - 1]?.map((strokePlayers, index) => (
-              <tr key={index}>
-                <td
-                  style={{
-                    padding: "10px",
-                    border: "1px solid #ccc",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Stroke {index + 1}{" "}
-                  <span
-                    onClick={() => removeStroke(index)}
-                    style={{
-                      cursor: "pointer",
-                      color: "red",
-                      marginLeft: "10px",
-                      fontSize: "1.2rem",
-                    }}
-                    title="Remove Stroke"
-                  >
-                    🗑️
-                  </span>
-                </td>
-                <td
-                  style={{
-                    padding: "10px",
-                    border: "1px solid #ccc",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "5px",
-                    }}
-                  >
-                    {players.map((playerName) => (
-                      <button
-                        key={playerName}
-                        onClick={() => togglePlayerForStroke(index, playerName)}
-                        style={{
-                          padding: "10px",
-                          backgroundColor: strokePlayers?.includes(playerName)
-                            ? "#1976d2"
-                            : "#ccc",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "5px",
-                          cursor: "pointer",
-                          textAlign: "center",
-                        }}
-                      >
-                        {playerName}
-                      </button>
-                    ))}
-                  </div>
-                </td>
-                <td
-                  style={{
-                    padding: "10px",
-                    border: "1px solid #ccc",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <select
-                    value={shotTypes[currentHole - 1]?.[index]?.[0] || ""}
-                    onChange={(e) => selectShotType(index, e.target.value)}
-                    style={{
-                      padding: "5px",
-                      fontSize: "14px",
-                      borderRadius: "5px",
-                      border: "1px solid #ccc",
-                      maxWidth: "150px",
-                    }}
-                  >
-                    <option value="" disabled>
-                      Select Shot Type
-                    </option>
-                    {shotTypeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div style={{ marginTop: "24px", textAlign: "center", display: "flex", justifyContent: "center", gap: "12px" }}>
+        <button onClick={previousHole} style={{ padding: "8px 16px", borderRadius: "6px" }}>Previous Hole</button>
+        <button onClick={nextHole} style={{ padding: "8px 16px", borderRadius: "6px" }}>Next Hole</button>
+        <button onClick={goToLeaderboard} style={{ padding: "8px 16px", borderRadius: "6px" }}>Leaderboard</button>
       </div>
-      <div style={{ textAlign: "center" }}>
+
+      <div style={{ marginTop: "16px", textAlign: "center" }}>
         <button
-          onClick={addStroke}
-          style={{
-            padding: "10px 20px",
-            margin: "10px",
-            backgroundColor: "#1976d2",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: "pointer",
-          }}
+          onClick={exportLeaderboardToDiscord}
+          style={{ padding: "8px 16px", borderRadius: "6px", backgroundColor: "#3b82f6", color: "#fff", border: "none" }}
         >
-          Add Stroke
-        </button>
-        <button
-          onClick={previousHole}
-          disabled={currentHole === 1}
-          style={{
-            padding: "10px 20px",
-            margin: "10px",
-            backgroundColor: currentHole === 1 ? "#ccc" : "#1976d2",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: currentHole === 1 ? "not-allowed" : "pointer",
-          }}
-        >
-          Back
-        </button>
-        <button
-          onClick={nextHole}
-          style={{
-            padding: "10px 20px",
-            margin: "10px",
-            backgroundColor: "#1976d2",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: "pointer",
-          }}
-        >
-          {currentHole < 18 ? "Next Hole" : "Finish Game"}
-        </button>
-        <button
-          onClick={goToLeaderboard}
-          style={{
-            padding: "10px 20px",
-            margin: "10px",
-            backgroundColor: "#1976d2",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: "pointer",
-          }}
-        >
-          Leaderboard
+          Export Leaderboard
         </button>
       </div>
     </div>
